@@ -2,7 +2,6 @@ import express, { Application, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import rateLimit from 'express-rate-limit';
 import { globalErrorHandler, AppError } from './middlewares/error';
 import { logger } from './utils/logger';
 
@@ -15,23 +14,10 @@ import customerRoutes from './routes/customer.route';
 
 const app: Application = express();
 
-// Trust proxy
-app.set('trust proxy', 1);
-
 // Global middlewares
 
-// Security HTTP headers
-app.use(helmet({
-  crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-    },
-  },
-}));
+// Basic security headers
+app.use(helmet());
 
 // Development logging
 app.use(morgan('combined', {
@@ -41,36 +27,6 @@ app.use(morgan('combined', {
     }
   }
 }));
-
-// Rate limiting
-const limiter = rateLimit({
-  max: 100,
-  windowMs: 60 * 60 * 1000, // 1 hour
-  message: {
-    status: 'error',
-    message: 'Too many requests from this IP, please try again in an hour!'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// Apply rate limiting to all API routes
-app.use('/api', limiter);
-
-// Stricter rate limiting for auth routes
-const authLimiter = rateLimit({
-  max: 5,
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  message: {
-    status: 'error',
-    message: 'Too many authentication attempts, please try again later!'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-app.use('/api/v1/auth/login', authLimiter);
-app.use('/api/v1/auth/register', authLimiter);
 
 // Body parser middleware
 app.use(express.json({ 
