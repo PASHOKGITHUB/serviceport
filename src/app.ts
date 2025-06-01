@@ -34,23 +34,13 @@ app.use(helmet({
 }));
 
 // Development logging
-if (process.env.NODE_ENV === 'development') {
-  app.use(morgan('combined', {
-    stream: {
-      write: (message: string) => {
-        logger.info(message.trim());
-      }
+app.use(morgan('combined', {
+  stream: {
+    write: (message: string) => {
+      logger.info(message.trim());
     }
-  }));
-} else {
-  app.use(morgan('combined', {
-    stream: {
-      write: (message: string) => {
-        logger.info(message.trim());
-      }
-    }
-  }));
-}
+  }
+}));
 
 // Rate limiting
 const limiter = rateLimit({
@@ -99,9 +89,12 @@ const corsOptions = {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    const allowedOrigins = process.env.NODE_ENV === 'production' 
-      ? ['https://yourdomain.com', 'https://www.yourdomain.com'] 
-      : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173'];
+    const allowedOrigins = [
+      'https://serviceport-rho.vercel.app',
+      'http://localhost:3000', 
+      'http://localhost:3001', 
+      'http://localhost:5173'
+    ];
     
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
@@ -140,7 +133,6 @@ app.get('/health', (req: Request, res: Response) => {
     uptime: process.uptime(),
     message: 'Service Management API is running!',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
     version: process.env.npm_package_version || '1.0.0',
     status: 'OK'
   };
