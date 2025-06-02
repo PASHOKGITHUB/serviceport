@@ -214,50 +214,44 @@ async createService(serviceData: any, createdBy: string): Promise<{ service: ISe
 
     return service;
   }
-
-  async updateServiceAction(id: string, newAction: string, updatedBy: string): Promise<IService> {
-    const service = await Service.findById(id);
-    if (!service) {
-      throw new AppError('No service found with that ID', 404);
-    }
-
-    const currentIndex = this.ACTION_HIERARCHY.indexOf(service.action);
-    const newIndex = this.ACTION_HIERARCHY.indexOf(newAction);
-
-    // Check if action transition is valid
-    if (newAction !== 'Cancelled' && newIndex <= currentIndex) {
-      throw new AppError(`Cannot move from ${service.action} to ${newAction}. Invalid action hierarchy.`, 400);
-    }
-
-    // If moving to delivered, set delivered date
-    const updateData: any = { 
-      action: newAction, 
-      updatedBy: updatedBy 
-    };
-    
-    if (newAction === 'Delivered' && !service.deliveredDate) {
-      updateData.deliveredDate = new Date();
-    }
-
-    const updatedService = await Service.findByIdAndUpdate(id, updateData, {
-      new: true,
-      runValidators: true,
-    })
-      .populate('technician', 'staffName contactNumber role')
-      .populate('branchId', 'branchName location address contactNumber');
-
-    if (!updatedService) {
-      throw new AppError('Service update failed', 500);
-    }
-
-    // Update customer service status
-    await Customer.findOneAndUpdate(
-      { serviceId: id },
-      { serviceStatus: newAction, updatedBy: updatedBy }
-    );
-
-    return updatedService;
+async updateServiceAction(id: string, newAction: string, updatedBy: string): Promise<IService> {
+  const service = await Service.findById(id);
+  if (!service) {
+    throw new AppError('No service found with that ID', 404);
   }
+
+  // Removed hierarchy validation - allow any action transition
+  // Users can now update from any status to any other status
+
+  // If moving to delivered, set delivered date
+  const updateData: any = { 
+    action: newAction, 
+    updatedBy: updatedBy 
+  };
+  
+  if (newAction === 'Delivered' && !service.deliveredDate) {
+    updateData.deliveredDate = new Date();
+  }
+
+  const updatedService = await Service.findByIdAndUpdate(id, updateData, {
+    new: true,
+    runValidators: true,
+  })
+    .populate('technician', 'staffName contactNumber role')
+    .populate('branchId', 'branchName location address contactNumber');
+
+  if (!updatedService) {
+    throw new AppError('Service update failed', 500);
+  }
+
+  // Update customer service status
+  await Customer.findOneAndUpdate(
+    { serviceId: id },
+    { serviceStatus: newAction, updatedBy: updatedBy }
+  );
+
+  return updatedService;
+}
 
   async assignTechnician(serviceId: string, technicianId: string, updatedBy: string): Promise<IService> {
     // Verify technician exists and is active

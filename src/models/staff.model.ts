@@ -5,6 +5,7 @@ export interface IStaff extends Document {
   contactNumber: string;
   role: 'Technician' | 'Staff' | 'Manager';
   branch: mongoose.Types.ObjectId;
+  address: string;
   action: 'Active' | 'Inactive';
   createdAt: Date;
   updatedAt: Date;
@@ -32,6 +33,11 @@ const staffSchema = new Schema<IStaff>({
     type: Schema.Types.ObjectId,
     ref: 'Branch',
     required: [true, 'Branch is required']
+  },
+  address: {
+    type: String,
+    required: [true, 'Address is required'],
+    trim: true
   },
   action: {
     type: String,
