@@ -20,6 +20,7 @@ export interface IService extends Document {
   receivedDate: Date;
   deliveredDate?: Date;
   productDetails: IProductDetails[];
+  branchId: mongoose.Types.ObjectId; // CRITICAL: Make this required
   createdAt: Date;
   updatedAt: Date;
   createdBy: mongoose.Types.ObjectId;
@@ -120,6 +121,12 @@ const serviceSchema = new Schema<IService>({
       message: 'At least one product is required'
     }
   },
+  // CRITICAL: Ensure branchId is properly defined
+  branchId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Branch',
+    required: [true, 'Branch ID is required']
+  },
   createdBy: {
     type: Schema.Types.ObjectId,
     ref: 'Auth',
@@ -130,7 +137,28 @@ const serviceSchema = new Schema<IService>({
     ref: 'Auth'
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  // IMPORTANT: These options ensure all fields are included in JSON responses
+  toJSON: { 
+    virtuals: true,
+    transform: function(doc, ret) {
+      // Ensure branchId is always included in JSON responses
+      if (doc.branchId) {
+        ret.branchId = doc.branchId;
+      }
+      return ret;
+    }
+  },
+  toObject: { 
+    virtuals: true,
+    transform: function(doc, ret) {
+      // Ensure branchId is always included in object responses
+      if (doc.branchId) {
+        ret.branchId = doc.branchId;
+      }
+      return ret;
+    }
+  }
 });
 
 // Generate unique service ID

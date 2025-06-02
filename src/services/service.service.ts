@@ -1,6 +1,7 @@
 import { Service, IService } from '../models/service.model';
 import { Customer } from '../models/customer.model';
 import { Staff } from '../models/staff.model';
+import { Branch } from '../models/branch.model';
 import { AppError } from '../middlewares/error';
 import { APIFeatures } from '../utils/apiFeatures';
 
@@ -18,11 +19,39 @@ export class ServiceService {
     'Cancelled'
   ];
 
-  async createService(serviceData: any, createdBy: string): Promise<{ service: IService; customer: any }> {
-    serviceData.createdBy = createdBy;
-    const service = await Service.create(serviceData);
+async createService(serviceData: any, createdBy: string): Promise<{ service: IService; customer: any }> {
+  try {
+    console.log('=== SERVICE CREATION DEBUG ===');
+    console.log('1. Input serviceData:', JSON.stringify(serviceData, null, 2));
+    console.log('2. branchId from input:', serviceData.branchId);
 
-    // Create customer record
+    // Validate that the branch exists
+    const branch = await Branch.findById(serviceData.branchId);
+    if (!branch) {
+      throw new AppError('Branch not found', 404);
+    }
+    console.log('3. Branch found:', branch.branchName);
+
+    // CRITICAL: Ensure branchId is included in service data with explicit ObjectId conversion
+    const servicePayload = {
+      customerName: serviceData.customerName,
+      customerContactNumber: serviceData.customerContactNumber,
+      address: serviceData.address,
+      location: serviceData.location,
+      productDetails: serviceData.productDetails,
+      branchId: serviceData.branchId, // Keep as string, MongoDB will convert
+      createdBy: createdBy,
+      serviceCost: serviceData.serviceCost
+    };
+
+    console.log('4. Service payload before creation:', JSON.stringify(servicePayload, null, 2));
+
+    // Create service with branchId
+    const service = await Service.create(servicePayload);
+    console.log('5. Service created with _id:', service._id);
+    console.log('6. Service branchId after creation:', service.branchId);
+
+    // Create customer record with the same branchId
     const customerData = {
       customerName: serviceData.customerName,
       phone: serviceData.customerContactNumber,
@@ -35,8 +64,21 @@ export class ServiceService {
     };
 
     const customer = await Customer.create(customerData);
+    console.log('7. Customer created with branchId:', customer.branchId);
 
-    const populatedService = await Service.findById(service._id).populate('technician', 'staffName contactNumber');
+    // IMPORTANT: First get the service without population to verify branchId is stored
+    const rawService = await Service.findById(service._id);
+    console.log('8. Raw service branchId (unpopulated):', rawService?.branchId);
+
+    // Now populate with explicit field selection
+    const populatedService = await Service.findById(service._id)
+      .populate('technician', 'staffName contactNumber')
+      .populate('branchId', 'branchName location address contactNumber')
+      .exec();
+      
+    console.log('9. Populated service branchId:', populatedService?.branchId);
+    console.log('10. Full populated service:', JSON.stringify(populatedService, null, 2));
+
     if (!populatedService) {
       throw new AppError('Service creation failed', 500);
     }
@@ -45,23 +87,81 @@ export class ServiceService {
       service: populatedService,
       customer 
     };
-  }
 
-  async getAllServices(queryString: any): Promise<IService[]> {
-    const features = new APIFeatures(
-      Service.find().populate('technician', 'staffName contactNumber role'), 
-      queryString
-    )
-      .filter()
-      .sort()
-      .limitFields()
-      .paginate();
+  } catch (error) {
+    console.error('Service creation error:', error);
+    throw error;
+  }
+}
+
+  async getAllServices(queryString: any): Promise<any[]> {
+    // Create base filter object
+    const filter: any = {};
+
+    // Handle branchId filter
+    if (queryString.branchId) {
+      filter.branchId = queryString.branchId;
+    }
+
+    // Handle search
+    if (queryString.search) {
+      const searchRegex = new RegExp(queryString.search, 'i');
+      
+      // Get all branches that match the search term
+      const matchingBranches = await Branch.find({
+        $or: [
+          { branchName: searchRegex },
+          { location: searchRegex }
+        ]
+      }).select('_id');
+      
+      const branchIds = matchingBranches.map(branch => branch._id);
+      
+      filter.$or = [
+        { serviceId: searchRegex },
+        { customerName: searchRegex },
+        { customerContactNumber: searchRegex },
+        { location: searchRegex },
+        { 'productDetails.productName': searchRegex },
+        { 'productDetails.brand': searchRegex },
+        { branchId: { $in: branchIds } }
+      ];
+    }
+
+    // Build query with explicit population
+    let query = Service.find(filter)
+      .populate('technician', 'staffName contactNumber role')
+      .populate('branchId', 'branchName location address contactNumber');
+
+    // Apply sorting
+    if (queryString.sort) {
+      const sortBy = queryString.sort.split(',').join(' ');
+      query = query.sort(sortBy);
+    } else {
+      query = query.sort('-createdAt');
+    }
+
+    // Apply pagination
+    const page = queryString.page * 1 || 1;
+    const limit = queryString.limit * 1 || 100;
+    const skip = (page - 1) * limit;
+    query = query.skip(skip).limit(limit);
+
+    // Execute query and convert to plain objects to ensure all fields are included
+    const services = await query.lean().exec();
     
-    return await features.query;
+    // Return services with guaranteed branchId inclusion
+    return services.map(service => ({
+      ...service,
+      branchId: service.branchId // Ensure branchId is explicitly included
+    }));
   }
 
   async getServiceById(id: string): Promise<IService> {
-    const service = await Service.findById(id).populate('technician', 'staffName contactNumber role branch');
+    const service = await Service.findById(id)
+      .populate('technician', 'staffName contactNumber role branch')
+      .populate('branchId', 'branchName location address contactNumber');
+      
     if (!service) {
       throw new AppError('No service found with that ID', 404);
     }
@@ -77,20 +177,39 @@ export class ServiceService {
       }
     }
 
+    // If branchId is being updated, verify the branch exists
+    if (updateData.branchId) {
+      const branch = await Branch.findById(updateData.branchId);
+      if (!branch) {
+        throw new AppError('Branch not found', 404);
+      }
+    }
+
     updateData.updatedBy = updatedBy;
     const service = await Service.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
-    }).populate('technician', 'staffName contactNumber role');
+    })
+      .populate('technician', 'staffName contactNumber role')
+      .populate('branchId', 'branchName location address contactNumber');
 
     if (!service) {
       throw new AppError('No service found with that ID', 404);
     }
 
-    // Update customer service status
+    // Update customer service status and branchId if changed
+    const customerUpdateData: any = { 
+      serviceStatus: service.action, 
+      updatedBy: updatedBy 
+    };
+    
+    if (updateData.branchId) {
+      customerUpdateData.branchId = updateData.branchId;
+    }
+
     await Customer.findOneAndUpdate(
       { serviceId: id },
-      { serviceStatus: service.action, updatedBy: updatedBy }
+      customerUpdateData
     );
 
     return service;
@@ -105,7 +224,7 @@ export class ServiceService {
     const currentIndex = this.ACTION_HIERARCHY.indexOf(service.action);
     const newIndex = this.ACTION_HIERARCHY.indexOf(newAction);
 
-    // Check if action transition is valid (can only move forward or to cancelled)
+    // Check if action transition is valid
     if (newAction !== 'Cancelled' && newIndex <= currentIndex) {
       throw new AppError(`Cannot move from ${service.action} to ${newAction}. Invalid action hierarchy.`, 400);
     }
@@ -123,7 +242,9 @@ export class ServiceService {
     const updatedService = await Service.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
-    }).populate('technician', 'staffName contactNumber role');
+    })
+      .populate('technician', 'staffName contactNumber role')
+      .populate('branchId', 'branchName location address contactNumber');
 
     if (!updatedService) {
       throw new AppError('Service update failed', 500);
@@ -153,7 +274,9 @@ export class ServiceService {
         updatedBy: updatedBy 
       },
       { new: true, runValidators: true }
-    ).populate('technician', 'staffName contactNumber role');
+    )
+      .populate('technician', 'staffName contactNumber role')
+      .populate('branchId', 'branchName location address contactNumber');
 
     if (!service) {
       throw new AppError('No service found with that ID', 404);
@@ -179,11 +302,21 @@ export class ServiceService {
   }
 
   async getServicesByStatus(status: string): Promise<IService[]> {
-    return await Service.find({ action: status }).populate('technician', 'staffName contactNumber role');
+    return await Service.find({ action: status })
+      .populate('technician', 'staffName contactNumber role')
+      .populate('branchId', 'branchName location address contactNumber');
   }
 
   async getServicesByTechnician(technicianId: string): Promise<IService[]> {
-    return await Service.find({ technician: technicianId }).populate('technician', 'staffName contactNumber role');
+    return await Service.find({ technician: technicianId })
+      .populate('technician', 'staffName contactNumber role')
+      .populate('branchId', 'branchName location address contactNumber');
+  }
+
+  async getServicesByBranch(branchId: string): Promise<IService[]> {
+    return await Service.find({ branchId })
+      .populate('technician', 'staffName contactNumber role')
+      .populate('branchId', 'branchName location address contactNumber');
   }
 
   async getServiceStats(): Promise<any> {
@@ -198,9 +331,37 @@ export class ServiceService {
 
     const totalServices = await Service.countDocuments();
     
+    // Get stats by branch
+    const branchStats = await Service.aggregate([
+      {
+        $group: {
+          _id: '$branchId',
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $lookup: {
+          from: 'branches',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'branch'
+        }
+      },
+      {
+        $unwind: '$branch'
+      },
+      {
+        $project: {
+          branchName: '$branch.branchName',
+          count: 1
+        }
+      }
+    ]);
+    
     return {
       totalServices,
-      statusBreakdown: stats
+      statusBreakdown: stats,
+      branchStats
     };
   }
 
@@ -217,7 +378,6 @@ export class ServiceService {
     }
     
     if (branchId) {
-      // You would need to add branchId field to Service model or join with Customer
       matchConditions.branchId = branchId;
     }
     
@@ -228,11 +388,24 @@ export class ServiceService {
     const report = await Service.aggregate([
       { $match: matchConditions },
       {
+        $lookup: {
+          from: 'branches',
+          localField: 'branchId',
+          foreignField: '_id',
+          as: 'branch'
+        }
+      },
+      {
+        $unwind: '$branch'
+      },
+      {
         $group: {
           _id: {
             status: '$action',
             month: { $month: '$createdAt' },
-            year: { $year: '$createdAt' }
+            year: { $year: '$createdAt' },
+            branchId: '$branchId',
+            branchName: '$branch.branchName'
           },
           count: { $sum: 1 },
           totalCost: { $sum: '$serviceCost' },
@@ -241,7 +414,12 @@ export class ServiceService {
       },
       {
         $group: {
-          _id: { month: '$_id.month', year: '$_id.year' },
+          _id: { 
+            month: '$_id.month', 
+            year: '$_id.year',
+            branchId: '$_id.branchId',
+            branchName: '$_id.branchName'
+          },
           statuses: {
             $push: {
               status: '$_id.status',
@@ -265,7 +443,9 @@ export class ServiceService {
       id,
       { serviceCost, updatedBy },
       { new: true, runValidators: true }
-    ).populate('technician', 'staffName contactNumber role');
+    )
+      .populate('technician', 'staffName contactNumber role')
+      .populate('branchId', 'branchName location address contactNumber');
 
     if (!service) {
       throw new AppError('No service found with that ID', 404);
@@ -283,17 +463,20 @@ export class ServiceService {
     );
 
     return await Service.find({ _id: { $in: serviceIds } })
-      .populate('technician', 'staffName contactNumber role');
+      .populate('technician', 'staffName contactNumber role')
+      .populate('branchId', 'branchName location address contactNumber');
   }
 
   async getOverdueServices(): Promise<IService[]> {
     const overdueDate = new Date();
-    overdueDate.setDate(overdueDate.getDate() - 7); // 7 days overdue
+    overdueDate.setDate(overdueDate.getDate() - 7);
 
     return await Service.find({
       action: { $nin: ['Completed', 'Cancelled', 'Delivered'] },
       createdAt: { $lt: overdueDate }
-    }).populate('technician', 'staffName contactNumber role');
+    })
+      .populate('technician', 'staffName contactNumber role')
+      .populate('branchId', 'branchName location address contactNumber');
   }
 
   async getServicesByDateRange(startDate: Date, endDate: Date): Promise<IService[]> {
@@ -302,6 +485,8 @@ export class ServiceService {
         $gte: startDate,
         $lte: endDate
       }
-    }).populate('technician', 'staffName contactNumber role');
+    })
+      .populate('technician', 'staffName contactNumber role')
+      .populate('branchId', 'branchName location address contactNumber');
   }
 }
