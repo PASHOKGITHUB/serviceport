@@ -4,14 +4,14 @@ import { AppError } from '../middlewares/error';
 import { APIFeatures } from '../utils/apiFeatures';
 
 export class StaffService {
-  async createStaff(staffData: any, createdBy: string): Promise<IStaff> {
+  async createStaff(staffData: IStaff, createdBy: string): Promise<IStaff> {
     // Verify branch exists
     const branch = await Branch.findById(staffData.branch);
     if (!branch) {
       throw new AppError('Branch not found', 404);
     }
 
-    staffData.createdBy = createdBy;
+    staffData.createdBy = new (require('mongoose').Types.ObjectId)(createdBy);
     const staff = await Staff.create(staffData);
     
     // Add staff to branch
@@ -68,10 +68,9 @@ export class StaffService {
       }
     }
 
-    updateData.updatedBy = updatedBy;
-    const staff = await Staff.findByIdAndUpdate(id, updateData, {
+    updateData.updatedBy = updatedBy;    const staff = await Staff.findByIdAndUpdate(id, updateData, {
       new: true,
-      runValidators: true,
+      runValidators: false, 
     }).populate('branch', 'branchName location');
 
     if (!staff) {

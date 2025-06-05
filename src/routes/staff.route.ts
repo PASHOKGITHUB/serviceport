@@ -9,7 +9,7 @@ import {
   getTechnicians
 } from '../controllers/staff.controller';
 import { validate } from '../middlewares/validate';
-import { protect, restrictTo } from '../middlewares/auth';
+import { protect } from '../middlewares/auth';
 import { createStaffSchema, updateStaffSchema } from '../validators/staff.schema';
 
 const router = Router();
@@ -20,7 +20,7 @@ router.use(protect);
 router
   .route('/')
   .get(getAllStaff)
-  .post(restrictTo('admin', 'manager'), validate(createStaffSchema), createStaff);
+  .post(validate(createStaffSchema), createStaff);
 
 router.get('/technicians', getTechnicians);
 router.get('/branch/:branchId', getStaffByBranch);
@@ -28,7 +28,8 @@ router.get('/branch/:branchId', getStaffByBranch);
 router
   .route('/:id')
   .get(getStaff)
-  .patch(restrictTo('admin', 'manager'), validate(updateStaffSchema), updateStaff)
-  .delete(restrictTo('admin'), deleteStaff);
+  .patch(validate(updateStaffSchema), updateStaff)
+  .delete(deleteStaff);
+
 
 export default router;
