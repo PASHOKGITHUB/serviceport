@@ -57,8 +57,14 @@ export const updateService = asyncHandler(async (req: AuthRequest, res: Response
 });
 
 export const updateServiceAction = asyncHandler(async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const { action } = req.body;
-  const service = await serviceService.updateServiceAction(req.params.id, action, req.user._id);
+  const { action, cancellationReason } = req.body; 
+  
+  const service = await serviceService.updateServiceAction(
+    req.params.id, 
+    action, 
+    req.user._id, 
+    cancellationReason 
+  );
 
   res.status(200).json({
     status: 'success',

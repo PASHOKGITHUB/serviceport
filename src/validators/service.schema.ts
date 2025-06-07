@@ -48,8 +48,19 @@ export const updateServiceActionSchema = z.object({
     'Delivered',
     'Completed',
     'Cancelled'
-  ])
+  ]),
+  cancellationReason: z.string().optional()
+}).refine((data) => {
+  // If action is 'Cancelled', cancellationReason must be provided
+  if (data.action === 'Cancelled') {
+    return data.cancellationReason && data.cancellationReason.trim().length > 0;
+  }
+  return true;
+}, {
+  message: 'Cancellation reason is required when action is set to Cancelled',
+  path: ['cancellationReason']
 });
+
 
 export const updateServiceCostSchema = z.object({
   serviceCost: z.number().min(0, 'Service cost must be positive')

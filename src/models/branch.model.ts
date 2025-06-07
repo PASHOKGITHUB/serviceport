@@ -5,6 +5,7 @@ export interface IBranch extends Document {
   phoneNumber: string;
   location: string;
   staffName: mongoose.Types.ObjectId[];
+  branchId: mongoose.Types.ObjectId;
   status: 'Active' | 'Inactive';
   address: string;
   createdAt: Date;
@@ -33,6 +34,11 @@ const branchSchema = new Schema<IBranch>({
     type: Schema.Types.ObjectId,
     ref: 'Staff'
   }],
+  branchId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Branch',
+      required: [true, 'Branch ID is required']
+    },
   status: {
     type: String,
     enum: ['Active', 'Inactive'],

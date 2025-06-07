@@ -47,6 +47,7 @@ const corsOptions = {
     
     const allowedOrigins = [
       'https://serviceport-rho.vercel.app',
+      'https://serviceport-git-main-pashokgithubs-projects.vercel.app',
       'http://localhost:3000', 
       'http://localhost:3001', 
       'http://localhost:5173'

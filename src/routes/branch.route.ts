@@ -6,11 +6,12 @@ import {
   updateBranch,
   deleteBranch,
   addStaffToBranch,
-  removeStaffFromBranch
+  removeStaffFromBranch,
+  updateBranchStatus
 } from '../controllers/branch.controller';
 import { validate } from '../middlewares/validate';
 import { protect, restrictTo } from '../middlewares/auth';
-import { createBranchSchema, updateBranchSchema } from '../validators/branch.schema';
+import { createBranchSchema, updateBranchSchema,updateBranchStatusSchema  } from '../validators/branch.schema';
 
 const router = Router();
 
@@ -27,6 +28,14 @@ router
   .get(getBranch)
   .patch(restrictTo('admin', 'manager'), validate(updateBranchSchema), updateBranch)
   .delete(restrictTo('admin'), deleteBranch);
+
+
+router.patch('/:id/status', 
+  restrictTo('admin', 'manager'), 
+  validate(updateBranchStatusSchema), 
+  updateBranchStatus
+);
+
 
 // Staff management for branches
 router.patch('/:branchId/staff/:staffId/add', restrictTo('admin', 'manager'), addStaffToBranch);

@@ -4,6 +4,15 @@ import { APIFeatures } from '../utils/apiFeatures';
 
 export class BranchService {
   async createBranch(branchData: any, createdBy: string): Promise<IBranch> {
+    // Check for duplicate branch name
+    const existingBranch = await Branch.findOne({ 
+      branchName: { $regex: new RegExp(`^${branchData.branchName}$`, 'i') }
+    });
+    
+    if (existingBranch) {
+      throw new AppError('Branch with this name already exists', 400);
+    }
+
     branchData.createdBy = createdBy;
     return await Branch.create(branchData);
   }
@@ -27,11 +36,42 @@ export class BranchService {
   }
 
   async updateBranch(id: string, updateData: any, updatedBy: string): Promise<IBranch | null> {
+    // Check for duplicate branch name if branchName is being updated
+    if (updateData.branchName) {
+      const existingBranch = await Branch.findOne({ 
+        branchName: { $regex: new RegExp(`^${updateData.branchName}$`, 'i') },
+        _id: { $ne: id } // Exclude current branch from duplicate check
+      });
+      
+      if (existingBranch) {
+        throw new AppError('Branch with this name already exists', 400);
+      }
+    }
+
     updateData.updatedBy = updatedBy;
     const branch = await Branch.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
     }).populate('staffName', 'staffName role');
+
+    if (!branch) {
+      throw new AppError('No branch found with that ID', 404);
+    }
+    return branch;
+  }
+
+  async updateBranchStatus(id: string, status: 'Active' | 'Inactive', updatedBy: string): Promise<IBranch | null> {
+    const branch = await Branch.findByIdAndUpdate(
+      id, 
+      { 
+        status,
+        updatedBy 
+      }, 
+      {
+        new: true,
+        runValidators: true,
+      }
+    ).populate('staffName', 'staffName role');
 
     if (!branch) {
       throw new AppError('No branch found with that ID', 404);

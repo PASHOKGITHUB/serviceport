@@ -55,6 +55,20 @@ export const updateBranch = asyncHandler(async (req: AuthRequest, res: Response,
   });
 });
 
+export const updateBranchStatus = asyncHandler(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const { status } = req.body;
+  const branch = await branchService.updateBranchStatus(req.params.id, status, req.user._id);
+
+  res.status(200).json({
+    status: 'success',
+    message: `Branch status updated to ${status} successfully`,
+    data: {
+      branch
+    }
+  });
+});
+
+
 export const deleteBranch = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   await branchService.deleteBranch(req.params.id);
 

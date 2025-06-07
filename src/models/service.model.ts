@@ -20,7 +20,8 @@ export interface IService extends Document {
   receivedDate: Date;
   deliveredDate?: Date;
   productDetails: IProductDetails[];
-  branchId: mongoose.Types.ObjectId; // CRITICAL: Make this required
+  branchId: mongoose.Types.ObjectId;
+  cancellationReason?: string;
   createdAt: Date;
   updatedAt: Date;
   createdBy: mongoose.Types.ObjectId;
@@ -121,11 +122,14 @@ const serviceSchema = new Schema<IService>({
       message: 'At least one product is required'
     }
   },
-  // CRITICAL: Ensure branchId is properly defined
   branchId: {
     type: Schema.Types.ObjectId,
     ref: 'Branch',
     required: [true, 'Branch ID is required']
+  },
+  cancellationReason: {
+    type: String,
+    trim: true,
   },
   createdBy: {
     type: Schema.Types.ObjectId,

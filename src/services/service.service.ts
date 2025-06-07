@@ -214,23 +214,38 @@ async createService(serviceData: any, createdBy: string): Promise<{ service: ISe
 
     return service;
   }
-async updateServiceAction(id: string, newAction: string, updatedBy: string): Promise<IService> {
+
+async updateServiceAction(id: string, newAction: string, updatedBy: string, cancellationReason?: string): Promise<IService> {
   const service = await Service.findById(id);
   if (!service) {
     throw new AppError('No service found with that ID', 404);
   }
 
-  // Removed hierarchy validation - allow any action transition
-  // Users can now update from any status to any other status
+  // NEW LOGIC 1: Validate cancellation reason when action is 'Cancelled'
+  if (newAction === 'Cancelled') {
+    if (!cancellationReason || cancellationReason.trim().length === 0) {
+      throw new AppError('Cancellation reason is required when setting action to Cancelled', 400);
+    }
+  }
 
-  // If moving to delivered, set delivered date
   const updateData: any = { 
     action: newAction, 
     updatedBy: updatedBy 
   };
   
+  // Set deliveredDate when action is 'Delivered'
   if (newAction === 'Delivered' && !service.deliveredDate) {
     updateData.deliveredDate = new Date();
+  }
+
+  // NEW LOGIC 1: Add cancellation reason if provided
+  if (newAction === 'Cancelled' && cancellationReason) {
+    updateData.cancellationReason = cancellationReason.trim();
+  }
+
+  // NEW LOGIC 2: Reset serviceCost to 0 when moving from 'Completed' to any other action
+  if (service.action === 'Completed' && newAction !== 'Completed') {
+    updateData.serviceCost = 0;
   }
 
   const updatedService = await Service.findByIdAndUpdate(id, updateData, {

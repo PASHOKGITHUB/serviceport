@@ -10,3 +10,10 @@ export const createBranchSchema = z.object({
 });
 
 export const updateBranchSchema = createBranchSchema.partial();
+
+export const updateBranchStatusSchema = z.object({
+  status: z.enum(['Active', 'Inactive'], {
+    required_error: 'Status is required',
+    invalid_type_error: 'Status must be either Active or Inactive'
+  })
+});
