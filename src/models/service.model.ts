@@ -19,7 +19,7 @@ export interface IService extends Document {
   serviceCost?: number;
   receivedDate: Date;
   deliveredDate?: Date;
-  productDetails: IProductDetails[];
+  productDetails: IProductDetails; // Changed from array to single object
   branchId: mongoose.Types.ObjectId;
   cancellationReason?: string;
   createdAt: Date;
@@ -113,14 +113,8 @@ const serviceSchema = new Schema<IService>({
     type: Date
   },
   productDetails: {
-    type: [productDetailsSchema],
-    required: [true, 'Product details are required'],
-    validate: {
-      validator: function(v: IProductDetails[]) {
-        return v && v.length > 0;
-      },
-      message: 'At least one product is required'
-    }
+    type: productDetailsSchema, // Changed from array to single object
+    required: [true, 'Product details are required']
   },
   branchId: {
     type: Schema.Types.ObjectId,
@@ -142,11 +136,9 @@ const serviceSchema = new Schema<IService>({
   }
 }, {
   timestamps: true,
-  // IMPORTANT: These options ensure all fields are included in JSON responses
   toJSON: { 
     virtuals: true,
     transform: function(doc, ret) {
-      // Ensure branchId is always included in JSON responses
       if (doc.branchId) {
         ret.branchId = doc.branchId;
       }
@@ -156,7 +148,6 @@ const serviceSchema = new Schema<IService>({
   toObject: { 
     virtuals: true,
     transform: function(doc, ret) {
-      // Ensure branchId is always included in object responses
       if (doc.branchId) {
         ret.branchId = doc.branchId;
       }

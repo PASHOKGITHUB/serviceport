@@ -5,10 +5,12 @@ export interface ICustomer extends Document {
   customerName: string;
   phone: string;
   location: string;
-  serviceId: mongoose.Types.ObjectId;
   branchId: mongoose.Types.ObjectId;
+  serviceId: mongoose.Types.ObjectId; // New field to track service association
   address: string;
-  serviceStatus: string;
+  visitCount: number; // Track visit count per service
+  lastVisitDate: Date; // Track last visit per service
+  serviceStatus: string; // Track service status
   createdAt: Date;
   updatedAt: Date;
   createdBy: mongoose.Types.ObjectId;
@@ -28,27 +30,37 @@ const customerSchema = new Schema<ICustomer>({
   phone: {
     type: String,
     required: [true, 'Phone number is required'],
-    trim: true
+    trim: true,
+    index: true // Add index for faster queries
   },
   location: {
     type: String,
     required: [true, 'Location is required'],
     trim: true
   },
-  serviceId: {
-    type: Schema.Types.ObjectId,
-    ref: 'Service',
-    required: [true, 'Service ID is required']
-  },
   branchId: {
     type: Schema.Types.ObjectId,
     ref: 'Branch',
     required: [true, 'Branch ID is required']
   },
+  serviceId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Service',
+    required: [true, 'Service ID is required'] // Required for service-specific tracking
+  },
   address: {
     type: String,
     required: [true, 'Address is required'],
     trim: true
+  },
+  visitCount: {
+    type: Number,
+    default: 1, // Start with 1 for new customers
+    min: 1
+  },
+  lastVisitDate: {
+    type: Date,
+    default: Date.now
   },
   serviceStatus: {
     type: String,
@@ -66,6 +78,12 @@ const customerSchema = new Schema<ICustomer>({
 }, {
   timestamps: true
 });
+
+// Create compound index for phone and serviceId combination for efficient queries
+customerSchema.index({ phone: 1, serviceId: 1 });
+
+// Create compound unique index to ensure one customer record per service
+customerSchema.index({ phone: 1, serviceId: 1 }, { unique: true });
 
 // Generate unique customer ID
 customerSchema.pre('save', async function(next) {

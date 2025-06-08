@@ -14,7 +14,7 @@ export const createServiceSchema = z.object({
   address: z.string().min(1, 'Address is required'),
   location: z.string().min(1, 'Location is required'),
   serviceCost: z.number().min(0, 'Service cost must be positive').optional(),
-  productDetails: z.array(productDetailsSchema).min(1, 'At least one product is required'),
+  productDetails: z.array(productDetailsSchema).min(1, 'At least one product is required'), // Keep as array for input validation
   branchId: z.string().min(1, 'Branch ID is required')
 });
 
@@ -60,7 +60,6 @@ export const updateServiceActionSchema = z.object({
   message: 'Cancellation reason is required when action is set to Cancelled',
   path: ['cancellationReason']
 });
-
 
 export const updateServiceCostSchema = z.object({
   serviceCost: z.number().min(0, 'Service cost must be positive')

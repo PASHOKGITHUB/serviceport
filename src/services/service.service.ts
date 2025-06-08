@@ -1,5 +1,5 @@
 import { Service, IService } from '../models/service.model';
-import { Customer } from '../models/customer.model';
+import { Customer,ICustomer } from '../models/customer.model';
 import { Staff } from '../models/staff.model';
 import { Branch } from '../models/branch.model';
 import { AppError } from '../middlewares/error';
@@ -19,80 +19,180 @@ export class ServiceService {
     'Cancelled'
   ];
 
-async createService(serviceData: any, createdBy: string): Promise<{ service: IService; customer: any }> {
-  try {
-    console.log('=== SERVICE CREATION DEBUG ===');
-    console.log('1. Input serviceData:', JSON.stringify(serviceData, null, 2));
-    console.log('2. branchId from input:', serviceData.branchId);
+async createService(serviceData: any, createdBy: string): Promise<{ services: IService[]; customer: ICustomer[] }> {
+    try {
+      console.log('=== SERVICE CREATION DEBUG ===');
+      console.log('1. Input serviceData:', JSON.stringify(serviceData, null, 2));
 
-    // Validate that the branch exists
-    const branch = await Branch.findById(serviceData.branchId);
-    if (!branch) {
-      throw new AppError('Branch not found', 404);
-    }
-    console.log('3. Branch found:', branch.branchName);
+      // Validate that the branch exists
+      const branch = await Branch.findById(serviceData.branchId);
+      if (!branch) {
+        throw new AppError('Branch not found', 404);
+      }
+      console.log('2. Branch found:', branch.branchName);
 
-    // CRITICAL: Ensure branchId is included in service data with explicit ObjectId conversion
-    const servicePayload = {
-      customerName: serviceData.customerName,
-      customerContactNumber: serviceData.customerContactNumber,
-      address: serviceData.address,
-      location: serviceData.location,
-      productDetails: serviceData.productDetails,
-      branchId: serviceData.branchId, // Keep as string, MongoDB will convert
-      createdBy: createdBy,
-      serviceCost: serviceData.serviceCost
-    };
-
-    console.log('4. Service payload before creation:', JSON.stringify(servicePayload, null, 2));
-
-    // Create service with branchId
-    const service = await Service.create(servicePayload);
-    console.log('5. Service created with _id:', service._id);
-    console.log('6. Service branchId after creation:', service.branchId);
-
-    // Create customer record with the same branchId
-    const customerData = {
-      customerName: serviceData.customerName,
-      phone: serviceData.customerContactNumber,
-      location: serviceData.location,
-      address: serviceData.address,
-      serviceId: service._id,
-      branchId: serviceData.branchId,
-      serviceStatus: service.action,
-      createdBy: createdBy
-    };
-
-    const customer = await Customer.create(customerData);
-    console.log('7. Customer created with branchId:', customer.branchId);
-
-    // IMPORTANT: First get the service without population to verify branchId is stored
-    const rawService = await Service.findById(service._id);
-    console.log('8. Raw service branchId (unpopulated):', rawService?.branchId);
-
-    // Now populate with explicit field selection
-    const populatedService = await Service.findById(service._id)
-      .populate('technician', 'staffName contactNumber')
-      .populate('branchId', 'branchName location address contactNumber')
-      .exec();
+      // Create separate service records for each product FIRST
+      const services: IService[] = [];
+      const customers: ICustomer[] = [];
       
-    console.log('9. Populated service branchId:', populatedService?.branchId);
-    console.log('10. Full populated service:', JSON.stringify(populatedService, null, 2));
+      for (const product of serviceData.productDetails) {
+        const servicePayload = {
+          customerName: serviceData.customerName,
+          customerContactNumber: serviceData.customerContactNumber,
+          address: serviceData.address,
+          location: serviceData.location,
+          productDetails: product, // Single product object
+          branchId: serviceData.branchId,
+          createdBy: createdBy,
+          serviceCost: serviceData.serviceCost
+        };
 
-    if (!populatedService) {
-      throw new AppError('Service creation failed', 500);
+        console.log(`3. Creating service for product: ${product.productName}`);
+        const service = await Service.create(servicePayload);
+        services.push(service);
+
+        // Create separate customer document for each service with serviceId
+        console.log(`4. Creating customer record for serviceId: ${service._id}`);
+        
+        // Check if customer already exists for this specific service
+        let existingCustomer = await Customer.findOne({ 
+          phone: serviceData.customerContactNumber,
+          serviceId: service._id 
+        });
+
+        let customer;
+        if (existingCustomer) {
+          // Update existing customer record for this service
+          existingCustomer.visitCount += 1;
+          existingCustomer.lastVisitDate = new Date();
+          existingCustomer.updatedBy = typeof createdBy === 'string' ? new (require('mongoose').Types.ObjectId)(createdBy) : createdBy;
+          
+          // Update customer info if provided data is different
+          if (existingCustomer.customerName !== serviceData.customerName) {
+            existingCustomer.customerName = serviceData.customerName;
+          }
+          if (existingCustomer.address !== serviceData.address) {
+            existingCustomer.address = serviceData.address;
+          }
+          if (existingCustomer.location !== serviceData.location) {
+            existingCustomer.location = serviceData.location;
+          }
+          
+          customer = await existingCustomer.save();
+          console.log(`5. Updated existing customer record for serviceId: ${service._id}`);
+        } else {
+          // Create new customer record with serviceId
+          const customerData = {
+            customerName: serviceData.customerName,
+            phone: serviceData.customerContactNumber,
+            location: serviceData.location,
+            address: serviceData.address,
+            branchId: serviceData.branchId,
+            serviceId: service._id, // Store serviceId for tracking
+            visitCount: 1,
+            lastVisitDate: new Date(),
+            createdBy: createdBy
+          };
+
+          customer = await Customer.create(customerData);
+          console.log(`5. Created new customer record for serviceId: ${service._id}`);
+        }
+
+        customers.push(customer);
+      }
+
+      console.log(`6. Created ${services.length} service records and ${customers.length} customer records`);
+
+      // Populate all services
+      const populatedServices: IService[] = [];
+      for (const service of services) {
+        const populatedService = await Service.findById(service._id)
+          .populate('technician', 'staffName contactNumber')
+          .populate('branchId', 'branchName location address contactNumber')
+          .exec();
+          
+        if (populatedService) {
+          populatedServices.push(populatedService);
+        }
+      }
+
+      console.log('7. All services populated successfully');
+
+      return { 
+        services: populatedServices,
+        customer: customers // Return array of customer records
+      };
+
+    } catch (error) {
+      console.error('Service creation error:', error);
+      throw error;
     }
-
-    return { 
-      service: populatedService,
-      customer 
-    };
-
-  } catch (error) {
-    console.error('Service creation error:', error);
-    throw error;
   }
-}
+
+  // Get all services for a customer by phone number
+  async getServicesByCustomerPhone(phone: string): Promise<{ customer: ICustomer | null; services: IService[] }> {
+    try {
+      const customer = await Customer.findOne({ phone });
+      
+      if (!customer) {
+        return { customer: null, services: [] };
+      }
+
+      const services = await Service.find({ customerContactNumber: phone })
+        .populate('technician', 'staffName contactNumber')
+        .populate('branchId', 'branchName location address contactNumber')
+        .sort({ createdAt: -1 }); // Most recent first
+
+      return { customer, services };
+    } catch (error) {
+      console.error('Error fetching customer services:', error);
+      throw error;
+    }
+  }
+
+  // Get customer summary with service statistics
+  async getCustomerSummary(phone: string): Promise<{
+    customer: ICustomer | null;
+    totalServices: number;
+    activeServices: number;
+    completedServices: number;
+    recentServices: IService[];
+  }> {
+    try {
+      const { customer, services } = await this.getServicesByCustomerPhone(phone);
+
+      if (!customer) {
+        return {
+          customer: null,
+          totalServices: 0,
+          activeServices: 0,
+          completedServices: 0,
+          recentServices: []
+        };
+      }
+
+      const activeServices = services.filter(s => 
+        !['Completed', 'Cancelled', 'Delivered'].includes(s.action)
+      ).length;
+      
+      const completedServices = services.filter(s => 
+        ['Completed', 'Delivered'].includes(s.action)
+      ).length;
+
+      const recentServices = services.slice(0, 5); // Last 5 services
+
+      return {
+        customer,
+        totalServices: services.length,
+        activeServices,
+        completedServices,
+        recentServices
+      };
+    } catch (error) {
+      console.error('Error fetching customer summary:', error);
+      throw error;
+    }
+  }
 
   async getAllServices(queryString: any): Promise<any[]> {
     // Create base filter object
@@ -168,52 +268,71 @@ async createService(serviceData: any, createdBy: string): Promise<{ service: ISe
     return service;
   }
 
-  async updateService(id: string, updateData: any, updatedBy: string): Promise<IService> {
-    // If technician is being assigned, verify they exist and are active
-    if (updateData.technician) {
-      const technician = await Staff.findById(updateData.technician);
-      if (!technician || technician.action !== 'Active') {
-        throw new AppError('Technician not found or inactive', 404);
-      }
+async updateService(id: string, updateData: any, updatedBy: string): Promise<IService> {
+  // If technician is being assigned, verify they exist and are active
+  if (updateData.technician) {
+    const technician = await Staff.findById(updateData.technician);
+    if (!technician || technician.action !== 'Active') {
+      throw new AppError('Technician not found or inactive', 404);
     }
-
-    // If branchId is being updated, verify the branch exists
-    if (updateData.branchId) {
-      const branch = await Branch.findById(updateData.branchId);
-      if (!branch) {
-        throw new AppError('Branch not found', 404);
-      }
-    }
-
-    updateData.updatedBy = updatedBy;
-    const service = await Service.findByIdAndUpdate(id, updateData, {
-      new: true,
-      runValidators: true,
-    })
-      .populate('technician', 'staffName contactNumber role')
-      .populate('branchId', 'branchName location address contactNumber');
-
-    if (!service) {
-      throw new AppError('No service found with that ID', 404);
-    }
-
-    // Update customer service status and branchId if changed
-    const customerUpdateData: any = { 
-      serviceStatus: service.action, 
-      updatedBy: updatedBy 
-    };
-    
-    if (updateData.branchId) {
-      customerUpdateData.branchId = updateData.branchId;
-    }
-
-    await Customer.findOneAndUpdate(
-      { serviceId: id },
-      customerUpdateData
-    );
-
-    return service;
   }
+
+  // If branchId is being updated, verify the branch exists
+  if (updateData.branchId) {
+    const branch = await Branch.findById(updateData.branchId);
+    if (!branch) {
+      throw new AppError('Branch not found', 404);
+    }
+  }
+
+  updateData.updatedBy = updatedBy;
+  const service = await Service.findByIdAndUpdate(id, updateData, {
+    new: true,
+    runValidators: true,
+  })
+    .populate('technician', 'staffName contactNumber role')
+    .populate('branchId', 'branchName location address contactNumber');
+
+  if (!service) {
+    throw new AppError('No service found with that ID', 404);
+  }
+
+  // Prepare customer update data
+  const customerUpdateData: any = { 
+    serviceStatus: service.action, 
+    updatedBy: updatedBy 
+  };
+  
+  // Add customer-related fields if they are being updated
+  if (updateData.customerName) {
+    customerUpdateData.customerName = updateData.customerName;
+  }
+  
+  if (updateData.customerContactNumber) {
+    customerUpdateData.phone = updateData.customerContactNumber;
+  }
+  
+  if (updateData.address) {
+    customerUpdateData.address = updateData.address;
+  }
+  
+  if (updateData.location) {
+    customerUpdateData.location = updateData.location;
+  }
+  
+  if (updateData.branchId) {
+    customerUpdateData.branchId = updateData.branchId;
+  }
+
+  // Update customer record
+  await Customer.findOneAndUpdate(
+    { serviceId: id },
+    customerUpdateData,
+    { new: true, runValidators: true }
+  );
+
+  return service;
+}
 
 async updateServiceAction(id: string, newAction: string, updatedBy: string, cancellationReason?: string): Promise<IService> {
   const service = await Service.findById(id);
@@ -221,10 +340,17 @@ async updateServiceAction(id: string, newAction: string, updatedBy: string, canc
     throw new AppError('No service found with that ID', 404);
   }
 
-  // NEW LOGIC 1: Validate cancellation reason when action is 'Cancelled'
+  // Existing cancellation validation...
   if (newAction === 'Cancelled') {
     if (!cancellationReason || cancellationReason.trim().length === 0) {
       throw new AppError('Cancellation reason is required when setting action to Cancelled', 400);
+    }
+  }
+
+  // NEW VALIDATION: Check service cost before marking as completed
+  if (newAction === 'Completed') {
+    if (!service.serviceCost || service.serviceCost <= 0) {
+      throw new AppError('Service cost must be set and greater than 0 before marking service as completed', 400);
     }
   }
 
@@ -233,17 +359,15 @@ async updateServiceAction(id: string, newAction: string, updatedBy: string, canc
     updatedBy: updatedBy 
   };
   
-  // Set deliveredDate when action is 'Delivered'
+  // Rest of your existing code remains the same...
   if (newAction === 'Delivered' && !service.deliveredDate) {
     updateData.deliveredDate = new Date();
   }
 
-  // NEW LOGIC 1: Add cancellation reason if provided
   if (newAction === 'Cancelled' && cancellationReason) {
     updateData.cancellationReason = cancellationReason.trim();
   }
 
-  // NEW LOGIC 2: Reset serviceCost to 0 when moving from 'Completed' to any other action
   if (service.action === 'Completed' && newAction !== 'Completed') {
     updateData.serviceCost = 0;
   }
@@ -259,7 +383,6 @@ async updateServiceAction(id: string, newAction: string, updatedBy: string, canc
     throw new AppError('Service update failed', 500);
   }
 
-  // Update customer service status
   await Customer.findOneAndUpdate(
     { serviceId: id },
     { serviceStatus: newAction, updatedBy: updatedBy }

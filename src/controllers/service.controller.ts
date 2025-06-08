@@ -9,13 +9,12 @@ interface AuthRequest extends Request {
 const serviceService = new ServiceService();
 
 export const createService = asyncHandler(async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const { service, customer } = await serviceService.createService(req.body, req.user._id);
+  const {customer } = await serviceService.createService(req.body, req.user._id);
 
   res.status(201).json({
     status: 'success',
     message: 'Service created successfully',
     data: {
-      service,
       customer
     }
   });
@@ -57,14 +56,8 @@ export const updateService = asyncHandler(async (req: AuthRequest, res: Response
 });
 
 export const updateServiceAction = asyncHandler(async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const { action, cancellationReason } = req.body; 
-  
-  const service = await serviceService.updateServiceAction(
-    req.params.id, 
-    action, 
-    req.user._id, 
-    cancellationReason 
-  );
+  const { action } = req.body;
+  const service = await serviceService.updateServiceAction(req.params.id, action, req.user._id);
 
   res.status(200).json({
     status: 'success',
