@@ -1,7 +1,20 @@
+// src/services/auth.service.ts
+
 import jwt from 'jsonwebtoken';
 import { Auth, IAuth } from '../models/auth.model';
+import { Staff, IStaff } from '../models/staff.model';
 import { AppError } from '../middlewares/error';
 import mongoose from 'mongoose';
+
+interface UnifiedUser {
+  _id: string;
+  userName?: string; // For admin
+  contactNumber?: string; // For staff
+  staffName?: string; // For staff
+  role: string;
+  userType: 'admin' | 'staff';
+  branch?: mongoose.Types.ObjectId; // Only for staff
+}
 
 export class AuthService {
   private signToken(id: string): string {
@@ -16,7 +29,6 @@ export class AuthService {
       throw new AppError('JWT_EXPIRE is not defined in environment variables', 500);
     }
     
-    // Use string assertion for the secret and options
     return jwt.sign(
       { id }, 
       secret as string, 
@@ -36,22 +48,66 @@ export class AuthService {
     return { user: userWithoutPassword, token };
   }
 
-  async login(userName: string, password: string): Promise<{ user: Partial<IAuth>; token: string }> {
-    // Check if user exists && password is correct
-    const user = await Auth.findOne({ userName }).select('+password');
+  // Unified login for both admin and staff
+  async login(userName: string, password: string): Promise<{ user: UnifiedUser; token: string }> {
+    console.log(`Login attempt for: ${userName}`);
+    let user: (IAuth & { userType?: string }) | (IStaff & { userType?: string }) | null = null;
+    let userType: 'admin' | 'staff' | null = null; // Initialize with null
 
-    if (!user || !user.password || !(await user.correctPassword(password, user.password))) {
-      throw new AppError('Incorrect username or password', 401);
+
+    // First, try to find in Admin collection
+    const adminUser = await Auth.findOne({ userName }).select('+password');
+    
+    if (adminUser) {
+    console.log('Admin user found:', adminUser.userName); // Debug log
+    if (adminUser.password && (await adminUser.correctPassword(password, adminUser.password))) {
+      user = adminUser;
+      userType = 'admin';
     }
+  } else {
+    console.log('No admin found, checking staff...'); // Debug log
+  }
 
+  // Try to find in Staff collection
+  const staffUser = await Staff.findOne({ 
+    contactNumber: userName,
+    action: 'Active'
+  }).select('+password').populate('branch', 'branchName location');
+
+  if (staffUser) {
+    console.log('Staff user found:', staffUser.contactNumber); // Debug log
+    if (staffUser.password) {
+      const isPasswordCorrect = await staffUser.correctPassword(password, staffUser.password);
+      console.log('Password check result:', isPasswordCorrect); // Debug log
+      if (isPasswordCorrect) {
+        user = staffUser;
+        userType = 'staff';
+      }
+    }
+  }
+
+  if (!user || !userType) {
+    console.log('Login failed - no valid user found or password mismatch'); // Debug log
+    throw new AppError('Incorrect username or password', 401);
+  }
     // Generate token
     const token = this.signToken((user._id as mongoose.Types.ObjectId).toString());
     
-    // Remove password from output
-    const userObj = user.toObject();
-    const { password: pwd, ...userWithoutPassword } = userObj;
+    // Create unified user object
+    const unifiedUser: UnifiedUser = {
+      _id: (user._id as mongoose.Types.ObjectId).toString(),
+      role: user.role,
+      userType,
+      ...(userType === 'admin' ? {
+        userName: (user as IAuth).userName
+      } : {
+        contactNumber: (user as IStaff).contactNumber,
+        staffName: (user as IStaff).staffName,
+        branch: (user as IStaff).branch
+      })
+    };
 
-    return { user: userWithoutPassword, token };
+    return { user: unifiedUser, token };
   }
 
   async getAllUsers(): Promise<IAuth[]> {
@@ -60,6 +116,35 @@ export class AuthService {
 
   async getUserById(id: string): Promise<IAuth | null> {
     return await Auth.findById(id).select('-password');
+  }
+
+  // Get user by ID from both collections (for JWT verification)
+  async getUnifiedUserById(id: string): Promise<UnifiedUser | null> {
+    // Try Admin first
+    const adminUser = await Auth.findById(id).select('-password');
+    if (adminUser) {
+      return {
+        _id: (adminUser._id as mongoose.Types.ObjectId).toString(),
+        userName: adminUser.userName,
+        role: adminUser.role,
+        userType: 'admin'
+      };
+    }
+
+    // Try Staff
+    const staffUser = await Staff.findById(id).select('-password').populate('branch', 'branchName location');
+    if (staffUser) {
+      return {
+        _id: (staffUser._id as mongoose.Types.ObjectId).toString(),
+        contactNumber: staffUser.contactNumber,
+        staffName: staffUser.staffName,
+        role: staffUser.role,
+        userType: 'staff',
+        branch: staffUser.branch
+      };
+    }
+
+    return null;
   }
 
   async updateUser(id: string, updateData: any, updatedBy: string): Promise<IAuth | null> {
